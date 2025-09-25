@@ -1,0 +1,13 @@
+/node_modules
+/dist
+/build
+/logs
+/data
+/config
+/docs
+/tests
+/scripts
+/utils
+/views
+.env
+.config.env
