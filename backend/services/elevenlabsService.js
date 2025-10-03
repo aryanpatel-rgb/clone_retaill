@@ -32,7 +32,7 @@ class ElevenLabsService {
 
   async generateSpeech(text, voiceId = null, options = {}) {
     try {
-      const targetVoiceId = voiceId || this.voiceId;
+      const targetVoiceId = (voiceId && voiceId !== 'undefined') ? voiceId : this.voiceId;
       
       const requestData = {
         text: text,
@@ -61,7 +61,7 @@ class ElevenLabsService {
             'xi-api-key': this.apiKey
           },
           responseType: 'arraybuffer',
-          timeout: 4000 // 4 second timeout for faster responses
+          timeout: 10000 // 10 second timeout for longer text
         }
       );
 
@@ -110,7 +110,7 @@ class ElevenLabsService {
             'xi-api-key': this.apiKey
           },
           responseType: 'stream',
-          timeout: 4000 // 4 second timeout for faster responses
+          timeout: 10000 // 10 second timeout for longer text
         }
       );
 
@@ -207,9 +207,9 @@ class ElevenLabsService {
         ...options
       };
 
-      // Add timeout to prevent hanging - very short for speed
+      // Add timeout to prevent hanging - increased for longer text
       const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('TTS timeout')), 2000)
+        setTimeout(() => reject(new Error('TTS timeout')), 8000)
       );
 
       const streamPromise = this.generateSpeechStream(text, null, optimizedOptions);

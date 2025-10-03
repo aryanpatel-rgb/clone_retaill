@@ -83,7 +83,7 @@ class TwilioService {
    * Public method to check if Twilio is configured
    * @returns {boolean} True if configured
    */
-  isConfigured() {
+  isTwilioConfigured() {
     return this.isConfigured;
   }
 
@@ -249,7 +249,7 @@ class TwilioService {
     try {
       logger.info('initiateCall received callData:', { callData });
       const { to, agent, customerName, callId } = callData;
-      logger.info('Destructured values:', { to, agent: agent?.id, customerName, callId });
+      logger.info('Destructured values:', { to, agent: agent?.agent_id, customerName, callId });
       
       // Validate required parameters
       if (!to || !agent) {
@@ -257,7 +257,7 @@ class TwilioService {
       }
       
       // Create webhook URL for this call
-      const webhookUrl = `${config.get('server.ngrokUrl')}/webhook/ai-call?agentId=${agent.id}&callId=${callId}`;
+      const webhookUrl = `${config.get('server.ngrokUrl')}/api/webhooks/ai-call?agentId=${agent.agent_id}&callId=${callId}`;
       
       // Call the existing makeOutboundCall method
       const result = await this.makeOutboundCall(to, webhookUrl, {
@@ -286,6 +286,17 @@ class TwilioService {
    */
   async makeOutboundCall(toNumber, webhookUrl, options = {}) {
     try {
+      // Check if Twilio is configured before making real calls
+      if (!this.isConfigured) {
+        logger.info('Twilio not configured, returning mock call result');
+        return {
+          success: true,
+          callSid: `mock-call-${Date.now()}`,
+          status: 'mock',
+          message: 'Mock call (Twilio not configured)'
+        };
+      }
+      
       this._validatePhoneNumber(toNumber);
       
       const callOptions = {
@@ -293,7 +304,7 @@ class TwilioService {
         from: this.fromNumber,
         url: webhookUrl,
         method: 'POST',
-        statusCallback: `${config.get('server.ngrokUrl')}/webhook/call-status`,
+        statusCallback: `${config.get('server.ngrokUrl')}/api/webhooks/call-status`,
         statusCallbackEvent: [
           'initiated', 'ringing', 'answered', 'completed', 
           'busy', 'failed', 'no-answer'
@@ -400,7 +411,7 @@ class TwilioService {
       // Create a gather element that contains the play
       const gather = twiml.gather({
         input: 'speech',
-        action: '/webhook/speech',
+        action: '/api/webhooks/speech',
         method: 'POST',
         timeout: 10,
         speechTimeout: 'auto'
@@ -442,7 +453,7 @@ class TwilioService {
       const gather = twiml.gather({
         input: 'speech',
         timeout: options.timeout || SPEECH_CONSTANTS.DEFAULT_TIMEOUT,
-        action: options.gatherUrl || '/webhook/speech',
+        action: options.gatherUrl || '/api/webhooks/speech',
         method: 'POST',
         speechTimeout: 'auto',
         speechModel: 'phone_call',
@@ -495,7 +506,7 @@ class TwilioService {
     const gather = twiml.gather({
       input: 'speech',
       timeout: options.timeout || SPEECH_CONSTANTS.DEFAULT_TIMEOUT,
-      action: options.action || '/webhook/speech',
+      action: options.action || '/api/webhooks/speech',
       method: 'POST',
       speechTimeout: 'auto',
       speechModel: 'phone_call',
@@ -565,7 +576,7 @@ class TwilioService {
         speechTimeout: 'auto',
         speechModel: 'phone_call',
         enhanced: true,
-        action: options.gatherUrl || '/webhook/speech',
+        action: options.gatherUrl || '/api/webhooks/speech',
         method: 'POST',
         hints: 'hello, hi, appointment, schedule'
       });

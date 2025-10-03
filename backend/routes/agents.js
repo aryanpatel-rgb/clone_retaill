@@ -1,10 +1,15 @@
 const express = require('express');
 const { pool, executeQuery } = require('../database/connection');
+const { validateAgent, validateId, validatePagination } = require('../middleware/validation');
 const router = express.Router();
 
-// Get all agents
-router.get('/', async (req, res) => {
+// Get all agents with pagination
+router.get('/', validatePagination, async (req, res) => {
   try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const offset = (page - 1) * limit;
+    
     const result = await executeQuery(`
       SELECT 
         a.*,
@@ -19,7 +24,13 @@ router.get('/', async (req, res) => {
       LEFT JOIN sessions s ON a.agent_id = s.agent_id
       GROUP BY a.id, a.agent_id
       ORDER BY a.created_at DESC
-    `);
+      LIMIT $1 OFFSET $2
+    `, [limit, offset]);
+    
+    // Get total count for pagination
+    const countResult = await executeQuery('SELECT COUNT(*) FROM agents');
+    const totalCount = parseInt(countResult.rows[0].count);
+    const totalPages = Math.ceil(totalCount / limit);
 
     const agents = result.rows.map(agent => ({
       id: agent.agent_id,
@@ -43,7 +54,17 @@ router.get('/', async (req, res) => {
       webhookUrl: agent.webhook_url
     }));
 
-    res.json(agents);
+    res.json({
+      agents,
+      pagination: {
+        page,
+        limit,
+        totalCount,
+        totalPages,
+        hasNext: page < totalPages,
+        hasPrev: page > 1
+      }
+    });
   } catch (error) {
     console.error('Error fetching agents:', error);
     res.status(500).json({ error: 'Failed to fetch agents' });
@@ -106,7 +127,7 @@ router.get('/:id', async (req, res) => {
 });
 
 // Create new agent
-router.post('/', async (req, res) => {
+router.post('/', validateAgent, async (req, res) => {
   try {
     const { name, description, aiPrompt, voice, language, model, webhookUrl } = req.body;
     
@@ -140,7 +161,7 @@ router.post('/', async (req, res) => {
 });
 
 // Update agent
-router.put('/:id', async (req, res) => {
+router.put('/:id', validateId, validateAgent, async (req, res) => {
   try {
     const { id } = req.params;
     const { name, description, aiPrompt, status, voice, language, model, webhookUrl } = req.body;
@@ -175,17 +196,22 @@ router.put('/:id', async (req, res) => {
 });
 
 // Delete agent
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', validateId, async (req, res) => {
   try {
     const { id } = req.params;
 
-    // First, delete related sessions
-    await pool.query(`
+    // First, delete related agent functions
+    await executeQuery(`
+      DELETE FROM agent_functions WHERE agent_id = $1
+    `, [id]);
+
+    // Then delete related sessions
+    await executeQuery(`
       DELETE FROM sessions WHERE agent_id = $1
     `, [id]);
 
     // Then delete related analytics
-    await pool.query(`
+    await executeQuery(`
       DELETE FROM analytics WHERE agent_id = $1
     `, [id]);
 
@@ -201,7 +227,15 @@ router.delete('/:id', async (req, res) => {
     res.json({ message: 'Agent deleted successfully' });
   } catch (error) {
     console.error('Error deleting agent:', error);
-    res.status(500).json({ error: 'Failed to delete agent' });
+    
+    // Provide more specific error messages
+    if (error.code === '23503') {
+      res.status(409).json({ 
+        error: 'Cannot delete agent: It is still being used by other records. Please remove all related data first.' 
+      });
+    } else {
+      res.status(500).json({ error: 'Failed to delete agent' });
+    }
   }
 });
 

@@ -22,54 +22,21 @@ const Calls = () => {
     const peerConnectionRef = useRef(null);
     const callDurationRef = useRef(null);
 
-    // Sample call data
-    const sampleCalls = [
-        {
-            id: '1',
-            agentId: 'agent-1',
-            agentName: 'Customer Support Agent',
-            customerName: 'John Smith',
-            customerPhone: '+1 (555) 123-4567',
-            status: 'completed',
-            duration: 180, // 3 minutes
-            startTime: new Date(Date.now() - 2 * 60 * 60 * 1000), // 2 hours ago
-            endTime: new Date(Date.now() - 2 * 60 * 60 * 1000 + 180 * 1000),
-            recording: 'recording_1.mp3',
-            transcript: 'Customer called about billing issue. Resolved by updating payment method.',
-            satisfaction: 5
-        },
-        {
-            id: '2',
-            agentId: 'agent-2',
-            agentName: 'Sales Agent',
-            customerName: 'Sarah Johnson',
-            customerPhone: '+1 (555) 987-6543',
-            status: 'completed',
-            duration: 420, // 7 minutes
-            startTime: new Date(Date.now() - 4 * 60 * 60 * 1000), // 4 hours ago
-            endTime: new Date(Date.now() - 4 * 60 * 60 * 1000 + 420 * 1000),
-            recording: 'recording_2.mp3',
-            transcript: 'Customer interested in premium plan. Scheduled follow-up call.',
-            satisfaction: 4
-        },
-        {
-            id: '3',
-            agentId: 'agent-1',
-            agentName: 'Customer Support Agent',
-            customerName: 'Mike Wilson',
-            customerPhone: '+1 (555) 456-7890',
-            status: 'in_progress',
-            duration: 0,
-            startTime: new Date(Date.now() - 5 * 60 * 1000), // 5 minutes ago
-            endTime: null,
-            recording: null,
-            transcript: '',
-            satisfaction: null
-        }
-    ];
-
+    // Load calls from API
     useEffect(() => {
-        setCalls(sampleCalls);
+        const loadCalls = async () => {
+            try {
+                const response = await fetch('/api/calls?limit=50');
+                if (response.ok) {
+                    const data = await response.json();
+                    setCalls(data.calls || []);
+                }
+            } catch (error) {
+                console.error('Failed to load calls:', error);
+            }
+        };
+        
+        loadCalls();
     }, []);
 
     // Call duration timer

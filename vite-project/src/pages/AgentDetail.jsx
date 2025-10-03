@@ -23,13 +23,13 @@ const AgentDetail = () => {
             const agentData = await api.getAgent(id);
             setAgent(agentData);
             setEditForm({
-                name: agentData.name,
-                description: agentData.description,
-                aiPrompt: agentData.aiPrompt,
-                voice: agentData.voice,
-                language: agentData.language,
-                model: agentData.model,
-                webhookUrl: agentData.webhookUrl
+                name: agentData.name || '',
+                description: agentData.description || '',
+                aiPrompt: agentData.aiPrompt || '',
+                voice: agentData.voice || 'Emma',
+                language: agentData.language || 'English',
+                model: agentData.model || 'gpt-4o-mini',
+                webhookUrl: agentData.webhookUrl || ''
             });
         } catch (error) {
             setError('Failed to load agent details');
@@ -406,7 +406,7 @@ const AgentDetail = () => {
                                         <input
                                             type="text"
                                             name="name"
-                                            value={isEditing ? editForm.name : agent.name}
+                                            value={isEditing ? (editForm.name || '') : (agent?.name || '')}
                                             onChange={isEditing ? handleEditFormChange : undefined}
                                             className="mt-1 block w-full border-gray-300 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500"
                                             readOnly={!isEditing}
@@ -416,7 +416,7 @@ const AgentDetail = () => {
                                         <label className="block text-sm font-medium text-gray-700">Description</label>
                                         <textarea
                                             name="description"
-                                            value={isEditing ? editForm.description : agent.description}
+                                            value={isEditing ? (editForm.description || '') : (agent?.description || '')}
                                             onChange={isEditing ? handleEditFormChange : undefined}
                                             rows={3}
                                             className="mt-1 block w-full border-gray-300 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500"
@@ -427,7 +427,7 @@ const AgentDetail = () => {
                                         <label className="block text-sm font-medium text-gray-700">AI Prompt</label>
                                         <textarea
                                             name="aiPrompt"
-                                            value={isEditing ? editForm.aiPrompt : agent.aiPrompt}
+                                            value={isEditing ? (editForm.aiPrompt || '') : (agent?.aiPrompt || '')}
                                             onChange={isEditing ? handleEditFormChange : undefined}
                                             rows={6}
                                             className="mt-1 block w-full border-gray-300 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500"
@@ -439,7 +439,7 @@ const AgentDetail = () => {
                                         <label className="block text-sm font-medium text-gray-700">Voice</label>
                                         <select
                                             name="voice"
-                                            value={isEditing ? editForm.voice : agent.voice}
+                                            value={isEditing ? (editForm.voice || 'Emma') : (agent?.voice || 'Emma')}
                                             onChange={isEditing ? handleEditFormChange : undefined}
                                             className="mt-1 block w-full border-gray-300 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500"
                                             disabled={!isEditing}
@@ -457,7 +457,7 @@ const AgentDetail = () => {
                                         <label className="block text-sm font-medium text-gray-700">Language</label>
                                         <select
                                             name="language"
-                                            value={isEditing ? editForm.language : agent.language}
+                                            value={isEditing ? (editForm.language || 'English') : (agent?.language || 'English')}
                                             onChange={isEditing ? handleEditFormChange : undefined}
                                             className="mt-1 block w-full border-gray-300 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500"
                                             disabled={!isEditing}
@@ -472,7 +472,7 @@ const AgentDetail = () => {
                                         <label className="block text-sm font-medium text-gray-700">Model</label>
                                         <select
                                             name="model"
-                                            value={isEditing ? editForm.model : agent.model}
+                                            value={isEditing ? (editForm.model || 'gpt-4o-mini') : (agent?.model || 'gpt-4o-mini')}
                                             onChange={isEditing ? handleEditFormChange : undefined}
                                             className="mt-1 block w-full border-gray-300 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500"
                                             disabled={!isEditing}
@@ -487,7 +487,7 @@ const AgentDetail = () => {
                                         <input
                                             type="url"
                                             name="webhookUrl"
-                                            value={isEditing ? editForm.webhookUrl : agent.webhookUrl}
+                                            value={isEditing ? (editForm.webhookUrl || '') : (agent?.webhookUrl || '')}
                                             onChange={isEditing ? handleEditFormChange : undefined}
                                             className="mt-1 block w-full border-gray-300 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500"
                                             readOnly={!isEditing}

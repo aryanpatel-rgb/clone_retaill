@@ -5,7 +5,7 @@
 
 const config = require('../config/config');
 const logger = require('../utils/logger');
-const databaseService = require('./databaseService');
+const databaseService = require('./postgresDatabaseService');
 
 class CustomFunctionService {
   constructor() {
@@ -72,7 +72,7 @@ class CustomFunctionService {
       
       // Register the function
       this._registerFunction(functionConfig);
-
+ 
       logger.info('Custom function created', { functionId, name, functionType });
       
       return {
@@ -185,7 +185,15 @@ class CustomFunctionService {
     
     switch (functionType) {
       case 'calcom':
-        implementation = this._createCalComFunction(apiKey, eventTypeId, timezone, parameters);
+      case 'check_availability':
+      case 'book_appointment':
+        // Extract API key and event type ID from nested config
+        const config = functionConfig.config || {};
+        const nestedConfig = config.config || {};
+        const userApiKey = nestedConfig.api_key || config.api_key || apiKey;
+        const userEventTypeId = nestedConfig.event_type_id || config.event_type_id || eventTypeId;
+        const userTimezone = nestedConfig.timezone || config.timezone || timezone;
+        implementation = this._createCalComFunction(userApiKey, userEventTypeId, userTimezone, parameters);
         break;
       case 'internal':
         implementation = this._createInternalFunction(parameters);
@@ -212,12 +220,11 @@ class CustomFunctionService {
   _createCalComFunction(apiKey, eventTypeId, timezone, parameters) {
     return async (args, context) => {
       try {
-        // Use the custom API key and event type ID
-        const calComService = require('./calComService');
+        // Use the external calendar service with custom API key
+        const externalCalendarService = require('./externalCalendarService');
         
-        // Temporarily override the API key for this function call
-        const originalApiKey = calComService.apiKey;
-        calComService.apiKey = apiKey;
+        // Update the service with the custom API key
+        await externalCalendarService.updateCredentials(apiKey, '', true);
 
         // Determine function behavior based on name
         const functionName = context.functionName || '';
@@ -225,13 +232,13 @@ class CustomFunctionService {
         if (functionName.includes('check') || functionName.includes('availability')) {
           // Check availability function
           const { date, time } = args;
-          const startDate = new Date(`${date}T${time || '00:00:00'}`);
-          const endDate = new Date(startDate.getTime() + 24 * 60 * 60 * 1000);
+          const startTime = `${date}T${time || '00:00:00'}:00.000Z`;
+          const endTime = `${date}T23:59:59.000Z`;
           
-          const result = await calComService.getAvailableSlots(
+          const result = await externalCalendarService.getAvailableSlots(
             eventTypeId,
-            startDate.toISOString(),
-            endDate.toISOString(),
+            startTime,
+            endTime,
             30
           );
 
@@ -240,36 +247,37 @@ class CustomFunctionService {
             available: result.slots && result.slots.length > 0,
             slots: result.slots || [],
             provider: 'calcom',
-            timezone
+            timezone,
+            date: date,
+            time: time
           };
         } else if (functionName.includes('book') || functionName.includes('appointment')) {
           // Book appointment function
-          const { customerName, customerEmail, startTime } = args;
+          const { customerName, customerEmail, customerPhone, date, time } = args;
+          
+          const formattedTime = time ? (time.includes(':') ? time + ':00' : time + ':00:00') : '00:00:00';
+          const startTime = new Date(`${date}T${formattedTime}`);
+          const endTime = new Date(startTime.getTime() + 30 * 60 * 1000); // 30 minutes
           
           const bookingData = {
             customerName,
             customerEmail,
-            startTime,
-            endTime: new Date(new Date(startTime).getTime() + 30 * 60 * 1000).toISOString(),
-            timezone
+            customerPhone,
+            startTime: startTime.toISOString(),
+            endTime: endTime.toISOString(),
+            callId: context.callId
           };
 
-          const result = await calComService.createBooking({
-            eventTypeId,
-            ...bookingData
-          });
+          const result = await externalCalendarService.createBooking(eventTypeId, bookingData);
 
           return {
             success: true,
-            bookingId: result.bookingId || `booking-${Date.now()}`,
+            bookingId: result.bookingId,
+            bookingUrl: result.booking?.url || result.booking?.bookingUrl,
             provider: 'calcom',
-            timezone,
             message: 'Appointment booked successfully'
           };
         }
-
-        // Restore original API key
-        calComService.apiKey = originalApiKey;
 
         return {
           success: false,

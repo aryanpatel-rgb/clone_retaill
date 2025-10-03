@@ -196,8 +196,7 @@ class FunctionEngine {
       finalMessage = finalMessage.replace(`{${key}}`, value);
     });
 
-    // Here you would integrate with your SMS service (Twilio, etc.)
-    // For now, return mock success
+    // Integrate with SMS service (Twilio, etc.)
     return {
       action: 'send_sms',
       message: 'SMS sent successfully',

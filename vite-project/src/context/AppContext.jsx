@@ -155,7 +155,9 @@ export function AppProvider({ children }) {
             try {
                 dispatch({ type: ActionTypes.SET_LOADING, payload: { key: 'agents', value: true } });
                 dispatch({ type: ActionTypes.CLEAR_ERROR });
-                const agents = await api.getAgents();
+                const response = await api.getAgents();
+                // Handle paginated response - extract agents array
+                const agents = response.agents || response;
                 dispatch({ type: ActionTypes.SET_AGENTS, payload: agents });
             } catch (error) {
                 console.error('Error fetching agents:', error);
@@ -331,8 +333,9 @@ export function AppProvider({ children }) {
         // Function management
         getAgentFunctions: useCallback(async (agentId) => {
             try {
-                const functions = await api.getAgentFunctions(agentId);
-                return functions;
+                const response = await api.getAgentFunctions(agentId);
+                // Handle response structure - extract functions array
+                return response.functions || response || [];
             } catch (error) {
                 console.error('Error fetching agent functions:', error);
                 throw error;

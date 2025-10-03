@@ -6,13 +6,13 @@
 const express = require('express');
 const router = express.Router();
 const twilioService = require('../services/twilioService');
-const databaseService = require('../services/databaseService');
+const databaseService = require('../services/postgresDatabaseService');
 const dynamicAIService = require('../services/dynamicAIService');
 const logger = require('../utils/logger');
 
 // Middleware to check if Twilio is configured
 const checkTwilioConfig = (req, res, next) => {
-  if (!twilioService.isConfigured()) {
+  if (!twilioService.isTwilioConfigured()) {
     return res.status(503).json({
       success: false,
       message: 'Twilio is not configured. Please add Twilio credentials to enable voice calling features.',

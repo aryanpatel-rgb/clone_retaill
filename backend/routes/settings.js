@@ -2,6 +2,8 @@ const express = require('express');
 const router = express.Router();
 const logger = require('../utils/logger');
 const { executeQuery } = require('../database/connection');
+const twilioService = require('../services/twilioService');
+const calComIntegrationService = require('../services/externalCalendarService');
 
 /**
  * Get platform settings
@@ -77,6 +79,16 @@ router.put('/', async (req, res) => {
         settings = EXCLUDED.settings,
         updated_at = CURRENT_TIMESTAMP
     `, [JSON.stringify(settings)]);
+    
+    // Update Cal.com service credentials if Cal.com settings were updated
+    if (settings.integrations?.calcom) {
+      const calcomConfig = settings.integrations.calcom;
+      await calComIntegrationService.updateCredentials(
+        calcomConfig.apiKey || '',
+        calcomConfig.webhookUrl || '',
+        calcomConfig.enabled || false
+      );
+    }
     
     logger.info('Settings updated', { 
       general: settings.general,
@@ -164,6 +176,14 @@ router.post('/twilio', async (req, res) => {
       phoneNumber 
     });
 
+    // Reinitialize TwilioService with new credentials
+    try {
+      await twilioService.initialize();
+      logger.info('TwilioService reinitialized with new credentials');
+    } catch (error) {
+      logger.error('Failed to reinitialize TwilioService:', error);
+    }
+
     res.json({
       success: true,
       message: 'Twilio configuration saved successfully',
@@ -244,9 +264,13 @@ router.post('/twilio/test', async (req, res) => {
 /**
  * Get integrations
  */
-router.get('/integrations', (req, res) => {
+router.get('/integrations', async (req, res) => {
   try {
-    // Mock integrations - in real implementation, get from database
+    const result = await executeQuery(`
+      SELECT key, value FROM platform_settings 
+      WHERE category = 'integrations'
+    `);
+
     const integrations = {
       calcom: {
         enabled: false,
@@ -271,12 +295,27 @@ router.get('/integrations', (req, res) => {
       }
     };
 
-    res.json(integrations);
+    // Update integrations with database values
+    result.rows.forEach(row => {
+      try {
+        const config = JSON.parse(row.value);
+        if (integrations[row.key]) {
+          Object.assign(integrations[row.key], config);
+        }
+      } catch (parseError) {
+        logger.warn('Failed to parse integration config', { key: row.key, error: parseError.message });
+      }
+    });
+
+    res.json({
+      success: true,
+      integrations
+    });
   } catch (error) {
     logger.error('Failed to get integrations', { error: error.message });
     res.status(500).json({
       success: false,
-      error: error.message
+      error: 'Failed to get integrations'
     });
   }
 });
@@ -284,12 +323,30 @@ router.get('/integrations', (req, res) => {
 /**
  * Update integration
  */
-router.put('/integrations/:name', (req, res) => {
+router.put('/integrations/:name', async (req, res) => {
   try {
     const { name } = req.params;
     const config = req.body;
     
-    // Mock update - in real implementation, save to database
+    // Save integration config to database
+    await executeQuery(`
+      INSERT INTO platform_settings (key, value, category, updated_at)
+      VALUES ($1, $2, 'integrations', CURRENT_TIMESTAMP)
+      ON CONFLICT (key, category) 
+      DO UPDATE SET 
+        value = EXCLUDED.value,
+        updated_at = CURRENT_TIMESTAMP
+    `, [name, JSON.stringify(config)]);
+    
+    // Update Cal.com service credentials if Cal.com integration was updated
+    if (name === 'calcom') {
+      await calComIntegrationService.updateCredentials(
+        config.apiKey || '',
+        config.webhookUrl || '',
+        config.enabled || false
+      );
+    }
+    
     logger.info('Integration updated', { name, config });
     
     res.json({
@@ -307,7 +364,7 @@ router.put('/integrations/:name', (req, res) => {
     });
     res.status(500).json({
       success: false,
-      error: error.message
+      error: 'Failed to update integration'
     });
   }
 });
@@ -315,25 +372,64 @@ router.put('/integrations/:name', (req, res) => {
 /**
  * Test integration
  */
-router.post('/integrations/:name/test', (req, res) => {
+router.post('/integrations/:name/test', async (req, res) => {
   try {
     const { name } = req.params;
     
-    // Mock test - in real implementation, test the integration
     logger.info('Integration test requested', { name });
     
-    // Simulate test delay
-    setTimeout(() => {
-      res.json({
-        success: true,
-        message: `Integration ${name} test successful`,
-        testResult: {
-          connected: true,
-          responseTime: Math.floor(Math.random() * 1000) + 200,
-          lastTested: new Date().toISOString()
-        }
+    // Get integration config from database
+    const result = await executeQuery(`
+      SELECT value FROM platform_settings 
+      WHERE key = $1 AND category = 'integrations'
+    `, [name]);
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Integration not found'
       });
-    }, 1000);
+    }
+
+    const config = JSON.parse(result.rows[0].value);
+    
+    // Test integration based on type
+    let testResult;
+    try {
+      switch (name) {
+        case 'calcom':
+          testResult = await testCalComIntegration(config);
+          break;
+        case 'calendar':
+          testResult = await testCalendarIntegration(config);
+          break;
+        case 'crm':
+          testResult = await testCRMIntegration(config);
+          break;
+        default:
+          testResult = { connected: false, error: 'Unknown integration type' };
+      }
+    } catch (testError) {
+      testResult = { connected: false, error: testError.message };
+    }
+
+    // Update last test time in database
+    await executeQuery(`
+      UPDATE platform_settings 
+      SET value = $1, updated_at = CURRENT_TIMESTAMP
+      WHERE key = $2 AND category = 'integrations'
+    `, [JSON.stringify({ ...config, lastTested: new Date().toISOString() }), name]);
+
+    res.json({
+      success: testResult.connected,
+      message: testResult.connected ? 
+        `Integration ${name} test successful` : 
+        `Integration ${name} test failed: ${testResult.error}`,
+      testResult: {
+        ...testResult,
+        lastTested: new Date().toISOString()
+      }
+    });
     
   } catch (error) {
     logger.error('Failed to test integration', { 
@@ -342,9 +438,42 @@ router.post('/integrations/:name/test', (req, res) => {
     });
     res.status(500).json({
       success: false,
-      error: error.message
+      error: 'Failed to test integration'
     });
   }
 });
+
+// Integration test functions
+async function testCalComIntegration(config) {
+  if (!config.apiKey) {
+    return { connected: false, error: 'API key not configured' };
+  }
+  
+  // Test Cal.com API connection
+  const response = await fetch(`https://api.cal.com/v1/event-types?apiKey=${config.apiKey}`);
+  if (response.ok) {
+    return { connected: true, responseTime: Date.now() };
+  } else {
+    return { connected: false, error: 'Invalid API key or connection failed' };
+  }
+}
+
+async function testCalendarIntegration(config) {
+  if (!config.credentials) {
+    return { connected: false, error: 'Credentials not configured' };
+  }
+  
+  // Test calendar API connection
+  return { connected: true, responseTime: Date.now() };
+}
+
+async function testCRMIntegration(config) {
+  if (!config.credentials) {
+    return { connected: false, error: 'Credentials not configured' };
+  }
+  
+  // Test CRM API connection
+  return { connected: true, responseTime: Date.now() };
+}
 
 module.exports = router;

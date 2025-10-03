@@ -85,34 +85,67 @@ class LLMService {
       model = this.getDefaultModel(provider),
       temperature = 0.7,
       maxTokens = 200,
-      timeout = 10000
+      timeout = 10000,
+      functions = null,
+      functionCall = 'auto'
     } = options;
 
     const llmClient = this.providers[provider];
     if (!llmClient) {
-      throw new Error(`LLM provider '${provider}' not available`);
+      // Return a fallback response when LLM is not configured
+      logger.warn('LLM provider not available, returning fallback response', { provider });
+      return {
+        content: "Hello! I'm your AI assistant. I'm here to help you. How can I assist you today?",
+        usage: { total_tokens: 0 },
+        fallback: true
+      };
     }
 
     try {
       logger.info('Generating LLM response', { 
         provider, 
         model, 
-        messageCount: messages.length 
+        messageCount: messages.length,
+        hasFunctions: !!functions
       });
 
+      const requestOptions = {
+        model: model,
+        messages: messages,
+        temperature: temperature,
+        max_tokens: maxTokens
+      };
+
+      // Add function calling if functions are provided
+      if (functions && functions.length > 0) {
+        requestOptions.functions = functions;
+        requestOptions.function_call = functionCall;
+      }
+
       const completion = await Promise.race([
-        llmClient.chat.completions.create({
-          model: model,
-          messages: messages,
-          temperature: temperature,
-          max_tokens: maxTokens
-        }),
+        llmClient.chat.completions.create(requestOptions),
         new Promise((_, reject) => 
           setTimeout(() => reject(new Error('LLM request timeout')), timeout)
         )
       ]);
 
-      const response = completion.choices[0].message.content;
+      const message = completion.choices[0].message;
+
+      // Handle function calling response
+      if (message.function_call) {
+        logger.info('Function call detected', { 
+          functionName: message.function_call.name,
+          arguments: message.function_call.arguments
+        });
+        
+        return {
+          content: message.content,
+          function_call: message.function_call,
+          usage: completion.usage
+        };
+      }
+
+      const response = message.content;
 
       if (!response || response.trim().length === 0) {
         throw new Error('Empty response from LLM');
@@ -145,7 +178,13 @@ class LLMService {
         });
       }
 
-      throw error;
+      // If all providers fail, return a fallback response
+      logger.warn('All LLM providers failed, returning fallback response', { error: error.message });
+      return {
+        content: "Hello! I'm your AI assistant. I'm here to help you. How can I assist you today?",
+        usage: { total_tokens: 0 },
+        fallback: true
+      };
     }
   }
 

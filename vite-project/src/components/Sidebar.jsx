@@ -8,7 +8,8 @@ import {
     X,
     Zap,
     Users,
-    Phone
+    Phone,
+    UserPlus
 } from 'lucide-react';
 
 const Sidebar = ({ isOpen, onClose }) => {
@@ -19,6 +20,7 @@ const Sidebar = ({ isOpen, onClose }) => {
         { name: 'Analytics', href: '/analytics', icon: BarChart3, current: location.pathname === '/analytics' },
         { name: 'Sessions', href: '/sessions', icon: MessageSquare, current: location.pathname === '/sessions' },
         { name: 'Calls', href: '/calls', icon: Phone, current: location.pathname === '/calls' },
+        { name: 'Contacts', href: '/contacts', icon: UserPlus, current: location.pathname === '/contacts' },
         { name: 'Integrations', href: '/integrations', icon: Zap, current: location.pathname === '/integrations' },
         { name: 'Team', href: '/team', icon: Users, current: location.pathname === '/team' },
         { name: 'Settings', href: '/settings', icon: Settings, current: location.pathname === '/settings' },

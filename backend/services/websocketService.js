@@ -6,7 +6,7 @@
 const WebSocket = require('ws');
 const logger = require('../utils/logger');
 const dynamicAIService = require('./dynamicAIService');
-const databaseService = require('./databaseService');
+const databaseService = require('./postgresDatabaseService');
 
 class WebSocketService {
   constructor() {

@@ -289,6 +289,68 @@ class ApiService {
     });
   }
 
+  // Contacts API
+  async getContacts(params = {}) {
+    const queryString = new URLSearchParams(params).toString();
+    const endpoint = queryString ? `/contacts?${queryString}` : '/contacts';
+    return this.request(endpoint);
+  }
+
+  async getContact(id) {
+    return this.request(`/contacts/${id}`);
+  }
+
+  async createContact(contactData) {
+    return this.request('/contacts', {
+      method: 'POST',
+      body: contactData,
+    });
+  }
+
+  async updateContact(id, contactData) {
+    return this.request(`/contacts/${id}`, {
+      method: 'PUT',
+      body: contactData,
+    });
+  }
+
+  async deleteContact(id) {
+    return this.request(`/contacts/${id}`, {
+      method: 'DELETE',
+    });
+  }
+
+  async verifyContact(id) {
+    return this.request(`/contacts/${id}/verify`, {
+      method: 'POST',
+    });
+  }
+
+  async getContactCalls(id, params = {}) {
+    const queryString = new URLSearchParams(params).toString();
+    const endpoint = queryString ? `/contacts/${id}/calls?${queryString}` : `/contacts/${id}/calls`;
+    return this.request(endpoint);
+  }
+
+  // Enhanced Calls API
+  async initiateCallWithValidation(callData) {
+    return this.request('/calls/initiate-with-validation', {
+      method: 'POST',
+      body: callData,
+    });
+  }
+
+  async getAgentsWithValidation() {
+    return this.request('/calls/agents-with-validation');
+  }
+
+  async validateAgent(agentId) {
+    return this.request('/calls/validate-agent', {
+      method: 'POST',
+      body: { agentId },
+    });
+  }
+
 }
 
 export default new ApiService();

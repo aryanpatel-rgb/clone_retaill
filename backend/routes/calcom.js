@@ -1,9 +1,84 @@
 const express = require('express');
 const axios = require('axios');
 const router = express.Router();
+const { body, param, validationResult } = require('express-validator');
 
 // Cal.com API base URL
 const CALCOM_API_BASE = 'https://api.cal.com/v1';
+
+// Validation error handler middleware
+const handleValidationErrors = (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({
+      success: false,
+      error: 'Validation failed',
+      details: errors.array().map(err => ({
+        field: err.path,
+        message: err.msg,
+        value: err.value
+      }))
+    });
+  }
+  next();
+};
+
+// Cal.com validation rules
+const validateApiKey = [
+  body('apiKey')
+    .trim()
+    .isLength({ min: 1 })
+    .withMessage('API key is required'),
+  handleValidationErrors
+];
+
+const validateBooking = [
+  body('apiKey')
+    .trim()
+    .isLength({ min: 1 })
+    .withMessage('API key is required'),
+  body('eventTypeId')
+    .trim()
+    .isLength({ min: 1 })
+    .withMessage('Event type ID is required'),
+  body('start')
+    .trim()
+    .isLength({ min: 1 })
+    .withMessage('Start time is required'),
+  body('responses')
+    .optional()
+    .isObject()
+    .withMessage('Responses must be an object'),
+  handleValidationErrors
+];
+
+const validateSlots = [
+  body('apiKey')
+    .trim()
+    .isLength({ min: 1 })
+    .withMessage('API key is required'),
+  body('eventTypeId')
+    .trim()
+    .isLength({ min: 1 })
+    .withMessage('Event type ID is required'),
+  body('startDate')
+    .trim()
+    .isLength({ min: 1 })
+    .withMessage('Start date is required'),
+  body('endDate')
+    .trim()
+    .isLength({ min: 1 })
+    .withMessage('End date is required'),
+  handleValidationErrors
+];
+
+const validateBookingId = [
+  param('bookingId')
+    .trim()
+    .isLength({ min: 1 })
+    .withMessage('Booking ID is required'),
+  handleValidationErrors
+];
 
 // Helper function to make Cal.com API requests
 const makeCalComRequest = async (endpoint, method = 'GET', data = null, apiKey = null) => {
@@ -20,36 +95,32 @@ const makeCalComRequest = async (endpoint, method = 'GET', data = null, apiKey =
       method,
       url,
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
       },
-      ...(data && { data })
     };
 
-        const response = await axios(config);
-        return {
-          success: true,
-          data: response.data
-        };
-      } catch (error) {
-        return {
-          success: false,
-          error: error.response?.data?.message || error.message,
-          status: error.response?.status
-        };
-      }
+    if (data) {
+      config.data = data;
+    }
+
+    const response = await axios(config);
+    return {
+      success: true,
+      data: response.data
+    };
+  } catch (error) {
+    console.error('Cal.com API Error:', error.response?.data || error.message);
+    return {
+      success: false,
+      error: error.response?.data?.message || error.message || 'Cal.com API request failed'
+    };
+  }
 };
 
 // Validate API Key - Test with event-types endpoint (as per Cal.com docs)
-router.post('/validate-api-key', async (req, res) => {
+router.post('/validate-api-key', validateApiKey, async (req, res) => {
   try {
     const { apiKey } = req.body;
-    
-    if (!apiKey) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'API key is required' 
-      });
-    }
 
     // Use event-types endpoint to validate API key (as shown in Cal.com docs)
     const result = await makeCalComRequest('/event-types', 'GET', null, apiKey);
@@ -68,12 +139,12 @@ router.post('/validate-api-key', async (req, res) => {
         valid: false
       });
     }
-      } catch (error) {
-        res.status(500).json({ 
-          success: false, 
-          error: 'Failed to validate API key' 
-        });
-      }
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to validate API key' 
+    });
+  }
 });
 
 // Get Event Type Details
@@ -85,7 +156,7 @@ router.get('/event-types/:eventTypeId', async (req, res) => {
     if (!apiKey) {
       return res.status(400).json({ 
         success: false, 
-        error: 'API key is required' 
+        error: 'API key is required as query parameter' 
       });
     }
 
@@ -94,11 +165,7 @@ router.get('/event-types/:eventTypeId', async (req, res) => {
     if (result.success) {
       res.json({
         success: true,
-        eventType: result.data,
-        id: result.data.id,
-        title: result.data.title,
-        length: result.data.length,
-        description: result.data.description
+        eventType: result.data
       });
     } else {
       res.json({
@@ -106,145 +173,58 @@ router.get('/event-types/:eventTypeId', async (req, res) => {
         error: result.error
       });
     }
-      } catch (error) {
-        res.status(500).json({ 
-          success: false, 
-          error: 'Failed to fetch event type' 
-        });
-      }
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to fetch event type' 
+    });
+  }
 });
 
-// Check Availability - Use /slots endpoint as per Cal.com docs
-router.post('/availability', async (req, res) => {
-  try {
-    const { apiKey, eventTypeId, startDate, endDate, timezone = 'UTC' } = req.body;
-    
-    if (!apiKey || !eventTypeId) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'API key and event type ID are required' 
-      });
-    }
-
-    // Use /slots endpoint with time range (as per Cal.com API docs)
-    const startTime = `${startDate}T00:00:00.000Z`;
-    const endTime = `${endDate}T23:59:59.999Z`;
-    const endpoint = `/slots?eventTypeId=${eventTypeId}&startTime=${startTime}&endTime=${endTime}&timeZone=${timezone}`;
-    const result = await makeCalComRequest(endpoint, 'GET', null, apiKey);
-    
-    if (result.success) {
-      res.json({
-        success: true,
-        slots: result.data.slots || [],
-        timezone: timezone
-      });
-    } else {
-      res.json({
-        success: false,
-        error: result.error,
-        slots: []
-      });
-    }
-      } catch (error) {
-        res.status(500).json({ 
-          success: false, 
-          error: 'Failed to check availability' 
-        });
-      }
-});
-
-// Book Appointment
-router.post('/bookings', async (req, res) => {
+// Create Booking
+router.post('/bookings', validateBooking, async (req, res) => {
   try {
     const { 
       apiKey, 
       eventTypeId, 
-      name, 
-      email, 
       start, 
-      end, 
-      timezone = 'UTC', 
-      notes = '' 
+      responses = {},
+      timeZone = 'UTC',
+      language = 'en'
     } = req.body;
-    
-    if (!apiKey || !eventTypeId || !name || !email || !start || !end) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'API key, event type ID, name, email, start, and end are required' 
-      });
-    }
 
-    // Get the first available slot from the actual slots
-    const startDate = start.split('T')[0];
-    const endDate = start.split('T')[0];
-    const startTime = `${startDate}T00:00:00.000Z`;
-    const endTime = `${endDate}T23:59:59.999Z`;
-    
-    const availabilityEndpoint = `/slots?eventTypeId=${eventTypeId}&startTime=${startTime}&endTime=${endTime}&timeZone=${timezone}`;
-    const availabilityResult = await makeCalComRequest(availabilityEndpoint, 'GET', null, apiKey);
-    
-    let bookingStart = start;
-    let bookingEnd = end;
-    
-    // Use actual available slot if found
-    if (availabilityResult.success) {
-      const slots = availabilityResult.data.slots;
-      if (slots && typeof slots === 'object') {
-        for (const date in slots) {
-          if (Array.isArray(slots[date]) && slots[date].length > 0) {
-            const actualSlot = slots[date][0];
-            bookingStart = actualSlot.time;
-            bookingEnd = new Date(new Date(actualSlot.time).getTime() + 30 * 60 * 1000).toISOString();
-            break;
-          }
-        }
-      }
-    }
-
-    // Create booking with actual available slot
     const bookingData = {
-      eventTypeId: parseInt(eventTypeId),
-      start: bookingStart,
-      end: bookingEnd,
-      timeZone: timezone,
-      language: 'en',
-      metadata: {
-        source: 'retell-ai-agent'
-      },
-      responses: {
-        name: name,
-        email: email,
-        notes: notes
-      }
+      eventTypeId,
+      start,
+      responses,
+      timeZone,
+      language
     };
-    
+
     const result = await makeCalComRequest('/bookings', 'POST', bookingData, apiKey);
     
     if (result.success) {
       res.json({
         success: true,
-        bookingId: result.data.id,
-        bookingUid: result.data.uid,
-        message: 'Appointment booked successfully',
-        booking: result.data
+        booking: result.data,
+        message: 'Booking created successfully'
       });
     } else {
       res.json({
         success: false,
-        error: result.error,
-        bookingId: null
+        error: result.error
       });
     }
   } catch (error) {
     res.status(500).json({ 
       success: false, 
-      error: 'Failed to book appointment' 
+      error: 'Failed to create booking' 
     });
   }
 });
 
 // Get Available Slots (date range)
-router.post('/slots', async (req, res) => {
+router.post('/slots', validateSlots, async (req, res) => {
   try {
     const { 
       apiKey, 
@@ -253,13 +233,6 @@ router.post('/slots', async (req, res) => {
       endDate, 
       timezone = 'UTC' 
     } = req.body;
-    
-    if (!apiKey || !eventTypeId || !startDate || !endDate) {
-      return res.status(400).json({ 
-        success: false, 
-        error: 'API key, event type ID, start date, and end date are required' 
-      });
-    }
 
     const startTime = `${startDate}T00:00:00.000Z`;
     const endTime = `${endDate}T23:59:59.999Z`;
@@ -288,10 +261,10 @@ router.post('/slots', async (req, res) => {
 });
 
 // Cancel Booking
-router.delete('/bookings/:bookingId', async (req, res) => {
+router.delete('/bookings/:bookingId', validateBookingId, async (req, res) => {
   try {
     const { bookingId } = req.params;
-    const { apiKey, reason = '' } = req.body;
+    const { apiKey } = req.body;
     
     if (!apiKey) {
       return res.status(400).json({ 
@@ -300,7 +273,7 @@ router.delete('/bookings/:bookingId', async (req, res) => {
       });
     }
 
-    const result = await makeCalComRequest(`/bookings/${bookingId}`, 'DELETE', { reason }, apiKey);
+    const result = await makeCalComRequest(`/bookings/${bookingId}`, 'DELETE', null, apiKey);
     
     if (result.success) {
       res.json({
@@ -319,6 +292,57 @@ router.delete('/bookings/:bookingId', async (req, res) => {
       error: 'Failed to cancel booking' 
     });
   }
+});
+
+// Get Booking Details
+router.get('/bookings/:bookingId', validateBookingId, async (req, res) => {
+  try {
+    const { bookingId } = req.params;
+    const { apiKey } = req.query;
+    
+    if (!apiKey) {
+      return res.status(400).json({ 
+        success: false, 
+        error: 'API key is required as query parameter' 
+      });
+    }
+
+    const result = await makeCalComRequest(`/bookings/${bookingId}`, 'GET', null, apiKey);
+    
+    if (result.success) {
+      res.json({
+        success: true,
+        booking: result.data
+      });
+    } else {
+      res.json({
+        success: false,
+        error: result.error
+      });
+    }
+  } catch (error) {
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to fetch booking' 
+    });
+  }
+});
+
+// Health check for Cal.com integration
+router.get('/health', (req, res) => {
+  res.json({
+    status: 'healthy',
+    service: 'calcom-integration',
+    timestamp: new Date().toISOString(),
+    endpoints: {
+      'validate-api-key': 'POST /api/calcom/validate-api-key',
+      'event-types': 'GET /api/calcom/event-types/:eventTypeId',
+      'bookings': 'POST /api/calcom/bookings',
+      'slots': 'POST /api/calcom/slots',
+      'cancel-booking': 'DELETE /api/calcom/bookings/:bookingId',
+      'get-booking': 'GET /api/calcom/bookings/:bookingId'
+    }
+  });
 });
 
 module.exports = router;

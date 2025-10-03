@@ -1,0 +1,50 @@
+{
+  "name": "retail-ai-platform",
+  "version": "1.0.0",
+  "description": "AI-powered voice calling platform with contact management and agent validation",
+  "private": true,
+  "workspaces": [
+    "backend",
+    "vite-project"
+  ],
+  "scripts": {
+    "setup": "node setup-env.js",
+    "install:all": "npm install && cd backend && npm install && cd ../vite-project && npm install",
+    "dev:backend": "cd backend && npm run dev",
+    "dev:frontend": "cd vite-project && npm run dev",
+    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "build:frontend": "cd vite-project && npm run build",
+    "start:backend": "cd backend && npm start",
+    "lint:frontend": "cd vite-project && npm run lint",
+    "test": "echo \"Tests not implemented yet\" && exit 0",
+    "clean": "rm -rf node_modules backend/node_modules vite-project/node_modules",
+    "postinstall": "echo \"Run 'npm run setup' to configure environment variables\""
+  },
+  "keywords": [
+    "ai",
+    "voice-calling",
+    "twilio",
+    "openai",
+    "react",
+    "nodejs",
+    "retail",
+    "automation"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/yourusername/retail-ai-platform.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yourusername/retail-ai-platform/issues"
+  },
+  "homepage": "https://github.com/yourusername/retail-ai-platform#readme"
+}

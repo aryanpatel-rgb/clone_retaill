@@ -7,22 +7,63 @@ const express = require('express');
 const router = express.Router();
 const customFunctionService = require('../services/customFunctionService');
 const logger = require('../utils/logger');
+const { body, param, validationResult } = require('express-validator');
+
+// Validation error handler middleware
+const handleValidationErrors = (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({
+      success: false,
+      error: 'Validation failed',
+      details: errors.array().map(err => ({
+        field: err.path,
+        message: err.msg,
+        value: err.value
+      }))
+    });
+  }
+  next();
+};
+
+// Custom function validation rules
+const validateCustomFunction = [
+  body('name')
+    .trim()
+    .isLength({ min: 1, max: 255 })
+    .withMessage('Function name is required and must be less than 255 characters'),
+  body('description')
+    .trim()
+    .isLength({ min: 10, max: 1000 })
+    .withMessage('Description is required and must be between 10-1000 characters'),
+  body('functionType')
+    .optional()
+    .trim()
+    .isLength({ max: 100 })
+    .withMessage('Function type must be less than 100 characters'),
+  body('config')
+    .optional()
+    .isObject()
+    .withMessage('Config must be a valid object'),
+  handleValidationErrors
+];
+
+// ID parameter validation
+const validateId = [
+  param('id')
+    .trim()
+    .isLength({ min: 1 })
+    .withMessage('ID parameter is required'),
+  handleValidationErrors
+];
 
 /**
  * Create a custom function
- * POST /api/functions
+ * POST /api/custom-functions
  */
-router.post('/', async (req, res) => {
+router.post('/', validateCustomFunction, async (req, res) => {
   try {
     const functionData = req.body;
-
-    // Validate required fields
-    if (!functionData.name || !functionData.description) {
-      return res.status(400).json({
-        success: false,
-        error: 'Function name and description are required'
-      });
-    }
 
     // Create function
     const result = await customFunctionService.createFunction(functionData);
@@ -50,12 +91,12 @@ router.post('/', async (req, res) => {
 
 /**
  * Get all custom functions
- * GET /api/functions
+ * GET /api/custom-functions
  */
 router.get('/', async (req, res) => {
   try {
     const result = await customFunctionService.getFunctions();
-    
+
     if (result.success) {
       res.json(result);
     } else {
@@ -63,64 +104,62 @@ router.get('/', async (req, res) => {
     }
 
   } catch (error) {
-    logger.error('Error getting custom functions', { error: error.message });
+    logger.error('Error fetching custom functions', { error: error.message });
     res.status(500).json({
       success: false,
-      error: 'Failed to get custom functions'
-    });
-  }
-});
-
-/** 
- * Get custom function by ID
- * GET /api/functions/:id
- */
-router.get('/:id', async (req, res) => {
-  try {
-    const { id } = req.params;
-    const functionData = await customFunctionService.getCustomFunction(id);
-
-    if (functionData) {
-      res.json({
-        success: true,
-        function: functionData
-      });
-    } else {
-      res.status(404).json({
-        success: false,
-        error: 'Function not found'
-      });
-    }
-
-  } catch (error) {
-    logger.error('Error getting custom function', { error: error.message, functionId: req.params.id });
-    res.status(500).json({
-      success: false,
-      error: 'Failed to get custom function'
+      error: 'Failed to fetch custom functions'
     });
   }
 });
 
 /**
- * Update custom function
- * PUT /api/functions/:id
+ * Get a specific custom function
+ * GET /api/custom-functions/:id
  */
-router.put('/:id', async (req, res) => {
+router.get('/:id', validateId, async (req, res) => {
   try {
     const { id } = req.params;
-    const updateData = req.body;
-
-    const result = await customFunctionService.updateFunction(id, updateData);
+    const result = await customFunctionService.getFunctionById(id);
 
     if (result.success) {
-      logger.info('Custom function updated via API', { functionId: id });
+      res.json(result);
+    } else {
+      res.status(404).json(result);
+    }
+
+  } catch (error) {
+    logger.error('Error fetching custom function', { error: error.message });
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch custom function'
+    });
+  }
+});
+
+/**
+ * Update a custom function
+ * PUT /api/custom-functions/:id
+ */
+router.put('/:id', validateId, validateCustomFunction, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const functionData = req.body;
+
+    const result = await customFunctionService.updateFunction(id, functionData);
+
+    if (result.success) {
+      logger.info('Custom function updated via API', { 
+        functionId: id,
+        name: functionData.name
+      });
+
       res.json(result);
     } else {
       res.status(400).json(result);
     }
 
   } catch (error) {
-    logger.error('Error updating custom function', { error: error.message, functionId: req.params.id });
+    logger.error('Error updating custom function', { error: error.message });
     res.status(500).json({
       success: false,
       error: 'Failed to update custom function'
@@ -129,13 +168,12 @@ router.put('/:id', async (req, res) => {
 });
 
 /**
- * Delete custom function
- * DELETE /api/functions/:id
+ * Delete a custom function
+ * DELETE /api/custom-functions/:id
  */
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', validateId, async (req, res) => {
   try {
     const { id } = req.params;
-    
     const result = await customFunctionService.deleteFunction(id);
 
     if (result.success) {
@@ -146,50 +184,33 @@ router.delete('/:id', async (req, res) => {
     }
 
   } catch (error) {
-    logger.error('Error deleting custom function', { error: error.message, functionId: req.params.id });
+    logger.error('Error deleting custom function', { error: error.message });
     res.status(500).json({
       success: false,
       error: 'Failed to delete custom function'
     });
   }
-  
 });
 
 /**
- * Test custom function
- * POST /api/functions/:id/test
+ * Test a custom function
+ * POST /api/custom-functions/:id/test
  */
-router.post('/:id/test', async (req, res) => {
+router.post('/:id/test', validateId, async (req, res) => {
   try {
     const { id } = req.params;
-    const { args = {}, context = {} } = req.body;
+    const { params } = req.body;
 
-    // Get function by ID
-    const functionData = await customFunctionService.getCustomFunction(id);
-    
-    if (!functionData) {
-      return res.status(404).json({
-        success: false,
-        error: 'Function not found'
-      });
+    const result = await customFunctionService.testFunction(id, params);
+
+    if (result.success) {
+      res.json(result);
+    } else {
+      res.status(400).json(result);
     }
 
-    // Execute function
-    const result = await customFunctionService.executeFunction(functionData.name, args, context);
-
-    logger.info('Custom function tested via API', { 
-      functionId: id, 
-      functionName: functionData.name,
-      success: result.success 
-    });
-
-    res.json(result);
-
   } catch (error) {
-    logger.error('Error testing custom function', { 
-      error: error.message, 
-      functionId: req.params.id 
-    });
+    logger.error('Error testing custom function', { error: error.message });
     res.status(500).json({
       success: false,
       error: 'Failed to test custom function'

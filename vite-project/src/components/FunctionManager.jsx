@@ -20,9 +20,11 @@ const FunctionManager = ({ agentId, onClose }) => {
         try {
             setLoading(true);
             const agentFunctions = await getAgentFunctions(agentId);
-            setFunctions(agentFunctions);
+            // Ensure functions is always an array
+            setFunctions(Array.isArray(agentFunctions) ? agentFunctions : []);
         } catch (error) {
             console.error('Error loading functions:', error);
+            setFunctions([]); // Set empty array on error
         } finally {
             setLoading(false);
         }

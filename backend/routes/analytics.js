@@ -1,15 +1,59 @@
 const express = require('express');
 const { pool, executeQuery } = require('../database/connection');
 const router = express.Router();
+const { query, validationResult } = require('express-validator');
+
+// Validation error handler middleware
+const handleValidationErrors = (req, res, next) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({
+      success: false,
+      error: 'Validation failed',
+      details: errors.array().map(err => ({
+        field: err.path,
+        message: err.msg,
+        value: err.value
+      }))
+    });
+  }
+  next();
+};
+
+// Analytics validation rules
+const validateAnalyticsQuery = [
+  query('date_from')
+    .optional()
+    .isISO8601()
+    .withMessage('date_from must be a valid ISO 8601 date'),
+  query('date_to')
+    .optional()
+    .isISO8601()
+    .withMessage('date_to must be a valid ISO 8601 date'),
+  query('agent_id')
+    .optional()
+    .trim()
+    .isLength({ min: 1 })
+    .withMessage('agent_id must be a valid string'),
+  handleValidationErrors
+];
 
 // Get analytics data
-router.get('/', async (req, res) => {
+router.get('/', validateAnalyticsQuery, async (req, res) => {
   try {
     const { date_from, date_to, agent_id } = req.query;
     
     // Get date range (default to last 7 days)
     const endDate = date_to ? new Date(date_to) : new Date();
     const startDate = date_from ? new Date(date_from) : new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
+
+    // Validate date range
+    if (startDate > endDate) {
+      return res.status(400).json({
+        success: false,
+        error: 'Start date must be before end date'
+      });
+    }
 
     // Get key metrics
     const metrics = await getKeyMetrics(startDate, endDate, agent_id);
@@ -20,226 +64,311 @@ router.get('/', async (req, res) => {
     // Get duration trends
     const durationTrends = await getDurationTrends(startDate, endDate, agent_id);
     
-    // Get status distribution
-    const statusDistribution = await getStatusDistribution(startDate, endDate, agent_id);
-    
-    // Get agent performance
-    const agentPerformance = await getAgentPerformance(startDate, endDate);
+    // Get success rate trends
+    const successRateTrends = await getSuccessRateTrends(startDate, endDate, agent_id);
 
     res.json({
-      metrics,
-      callVolume,
-      durationTrends,
-      statusDistribution,
-      agentPerformance,
-      dateRange: {
-        from: startDate.toISOString(),
-        to: endDate.toISOString()
+      success: true,
+      data: {
+        dateRange: {
+          start: startDate.toISOString(),
+          end: endDate.toISOString()
+        },
+        metrics,
+        callVolume,
+        durationTrends,
+        successRateTrends
       }
     });
   } catch (error) {
     console.error('Error fetching analytics:', error);
-    res.status(500).json({ error: 'Failed to fetch analytics data' });
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch analytics data'
+    });
   }
 });
 
-// Get key metrics
-async function getKeyMetrics(startDate, endDate, agentId) {
-  let query = `
-    SELECT 
-      COUNT(*) as total_calls,
-      COUNT(CASE WHEN status = 'completed' THEN 1 END) as successful_calls,
-      COUNT(CASE WHEN status = 'failed' THEN 1 END) as failed_calls,
-      AVG(CASE WHEN status = 'completed' THEN duration ELSE NULL END) as avg_duration,
-      AVG(satisfaction) as avg_satisfaction
-    FROM sessions
-    WHERE start_time >= $1 AND start_time <= $2
-  `;
-  
-  const queryParams = [startDate, endDate];
-  
-  if (agentId && agentId !== 'all') {
-    query += ` AND agent_id = $3`;
-    queryParams.push(agentId);
-  }
-
-  const result = await executeQuery(query, queryParams);
-  const data = result.rows[0];
-
-  return {
-    totalCalls: parseInt(data.total_calls) || 0,
-    successfulCalls: parseInt(data.successful_calls) || 0,
-    failedCalls: parseInt(data.failed_calls) || 0,
-    avgDuration: data.avg_duration ? Math.round(data.avg_duration) : 0,
-    avgSatisfaction: data.avg_satisfaction ? parseFloat(data.avg_satisfaction).toFixed(1) : 0,
-    successRate: data.total_calls > 0 ? 
-      ((data.successful_calls / data.total_calls) * 100).toFixed(1) : 0
-  };
-}
-
-// Get call volume over time
-async function getCallVolume(startDate, endDate, agentId) {
-  let query = `
-    SELECT 
-      DATE(start_time) as date,
-      COUNT(*) as total_calls,
-      COUNT(CASE WHEN status = 'completed' THEN 1 END) as successful_calls
-    FROM sessions
-    WHERE start_time >= $1 AND start_time <= $2
-  `;
-  
-  const queryParams = [startDate, endDate];
-  
-  if (agentId && agentId !== 'all') {
-    query += ` AND agent_id = $3`;
-    queryParams.push(agentId);
-  }
-
-  query += ` GROUP BY DATE(start_time) ORDER BY date`;
-
-  const result = await executeQuery(query, queryParams);
-  
-  return result.rows.map(row => ({
-    date: row.date.toISOString().split('T')[0],
-    calls: parseInt(row.total_calls),
-    successful: parseInt(row.successful_calls)
-  }));
-}
-
-// Get duration trends
-async function getDurationTrends(startDate, endDate, agentId) {
-  let query = `
-    SELECT 
-      DATE(start_time) as date,
-      AVG(CASE WHEN status = 'completed' THEN duration ELSE NULL END) as avg_duration
-    FROM sessions
-    WHERE start_time >= $1 AND start_time <= $2
-  `;
-  
-  const queryParams = [startDate, endDate];
-  
-  if (agentId && agentId !== 'all') {
-    query += ` AND agent_id = $3`;
-    queryParams.push(agentId);
-  }
-
-  query += ` GROUP BY DATE(start_time) ORDER BY date`;
-
-  const result = await executeQuery(query, queryParams);
-  
-  return result.rows.map(row => ({
-    date: row.date.toISOString().split('T')[0],
-    duration: row.avg_duration ? Math.round(row.avg_duration) : 0
-  }));
-}
-
-// Get status distribution
-async function getStatusDistribution(startDate, endDate, agentId) {
-  let query = `
-    SELECT 
-      status,
-      COUNT(*) as count
-    FROM sessions
-    WHERE start_time >= $1 AND start_time <= $2
-  `;
-  
-  const queryParams = [startDate, endDate];
-  
-  if (agentId && agentId !== 'all') {
-    query += ` AND agent_id = $3`;
-    queryParams.push(agentId);
-  }
-
-  query += ` GROUP BY status`;
-
-  const result = await executeQuery(query, queryParams);
-  
-  const colors = {
-    'completed': '#10B981',
-    'failed': '#EF4444',
-    'in_progress': '#F59E0B'
-  };
-
-  return result.rows.map(row => ({
-    name: row.status.charAt(0).toUpperCase() + row.status.slice(1),
-    value: parseInt(row.count),
-    color: colors[row.status] || '#6B7280'
-  }));
-}
-
-// Get agent performance
-async function getAgentPerformance(startDate, endDate) {
-  const query = `
-    SELECT 
-      a.agent_id,
-      a.name,
-      COUNT(s.id) as total_calls,
-      COUNT(CASE WHEN s.status = 'completed' THEN 1 END) as successful_calls,
-      AVG(CASE WHEN s.status = 'completed' THEN s.duration ELSE NULL END) as avg_duration,
-      AVG(s.satisfaction) as avg_satisfaction
-    FROM agents a
-    LEFT JOIN sessions s ON a.agent_id = s.agent_id 
-      AND s.start_time >= $1 AND s.start_time <= $2
-    GROUP BY a.agent_id, a.name
-    ORDER BY total_calls DESC
-  `;
-
-  const result = await executeQuery(query, [startDate, endDate]);
-  
-  return result.rows.map(row => ({
-    agentId: row.agent_id,
-    name: row.name,
-    totalCalls: parseInt(row.total_calls) || 0,
-    successfulCalls: parseInt(row.successful_calls) || 0,
-    avgDuration: row.avg_duration ? Math.round(row.avg_duration) : 0,
-    avgSatisfaction: row.avg_satisfaction ? parseFloat(row.avg_satisfaction).toFixed(1) : 0,
-    successRate: row.total_calls > 0 ? 
-      ((row.successful_calls / row.total_calls) * 100).toFixed(1) : 0
-  }));
-}
-
-// Get real-time metrics
-router.get('/realtime', async (req, res) => {
+// Get agent-specific analytics
+router.get('/agent/:agentId', [
+  query('date_from')
+    .optional()
+    .isISO8601()
+    .withMessage('date_from must be a valid ISO 8601 date'),
+  query('date_to')
+    .optional()
+    .isISO8601()
+    .withMessage('date_to must be a valid ISO 8601 date'),
+  handleValidationErrors
+], async (req, res) => {
   try {
-    const now = new Date();
-    const oneHourAgo = new Date(now.getTime() - 60 * 60 * 1000);
-    const oneDayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const { agentId } = req.params;
+    const { date_from, date_to } = req.query;
+    
+    // Get date range (default to last 30 days)
+    const endDate = date_to ? new Date(date_to) : new Date();
+    const startDate = date_from ? new Date(date_from) : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
 
-    // Get current hour stats
-    const currentHour = await executeQuery(`
-      SELECT 
-        COUNT(*) as calls_this_hour,
-        COUNT(CASE WHEN status = 'in_progress' THEN 1 END) as active_calls
-      FROM sessions
-      WHERE start_time >= $1
-    `, [oneHourAgo]);
+    // Validate date range
+    if (startDate > endDate) {
+      return res.status(400).json({
+        success: false,
+        error: 'Start date must be before end date'
+      });
+    }
 
-    // Get last 24 hours stats
-    const last24Hours = await executeQuery(`
-      SELECT 
-        COUNT(*) as calls_today,
-        COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed_today,
-        AVG(CASE WHEN status = 'completed' THEN duration ELSE NULL END) as avg_duration_today
-      FROM sessions
-      WHERE start_time >= $1
-    `, [oneDayAgo]);
+    // Get agent details
+    const agentResult = await executeQuery(`
+      SELECT name, description FROM agents WHERE agent_id = $1
+    `, [agentId]);
+
+    if (agentResult.rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Agent not found'
+      });
+    }
+
+    const agent = agentResult.rows[0];
+    
+    // Get agent-specific metrics
+    const metrics = await getKeyMetrics(startDate, endDate, agentId);
+    
+    // Get call volume over time for this agent
+    const callVolume = await getCallVolume(startDate, endDate, agentId);
+    
+    // Get duration trends for this agent
+    const durationTrends = await getDurationTrends(startDate, endDate, agentId);
+    
+    // Get success rate trends for this agent
+    const successRateTrends = await getSuccessRateTrends(startDate, endDate, agentId);
+
+    // Get recent calls for this agent
+    const recentCalls = await getRecentCalls(agentId, 10);
 
     res.json({
-      currentHour: {
-        calls: parseInt(currentHour.rows[0].calls_this_hour) || 0,
-        active: parseInt(currentHour.rows[0].active_calls) || 0
-      },
-      last24Hours: {
-        calls: parseInt(last24Hours.rows[0].calls_today) || 0,
-        completed: parseInt(last24Hours.rows[0].completed_today) || 0,
-        avgDuration: last24Hours.rows[0].avg_duration_today ? 
-          Math.round(last24Hours.rows[0].avg_duration_today) : 0
+      success: true,
+      data: {
+        agent: {
+          id: agentId,
+          name: agent.name,
+          description: agent.description
+        },
+        dateRange: {
+          start: startDate.toISOString(),
+          end: endDate.toISOString()
+        },
+        metrics,
+        callVolume,
+        durationTrends,
+        successRateTrends,
+        recentCalls
       }
     });
   } catch (error) {
-    console.error('Error fetching real-time metrics:', error);
-    res.status(500).json({ error: 'Failed to fetch real-time metrics' });
+    console.error('Error fetching agent analytics:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to fetch agent analytics'
+    });
   }
+});
+
+// Helper function to get key metrics
+async function getKeyMetrics(startDate, endDate, agentId) {
+  try {
+    let query = `
+      SELECT 
+        COUNT(*) as total_calls,
+        COUNT(CASE WHEN status = 'completed' THEN 1 END) as successful_calls,
+        COUNT(CASE WHEN status = 'failed' THEN 1 END) as failed_calls,
+        AVG(CASE WHEN status = 'completed' THEN duration ELSE NULL END) as avg_duration,
+        MIN(start_time) as first_call,
+        MAX(start_time) as last_call
+      FROM sessions 
+      WHERE start_time >= $1 AND start_time <= $2
+    `;
+    
+    const params = [startDate, endDate];
+    
+    if (agentId) {
+      query += ` AND agent_id = $3`;
+      params.push(agentId);
+    }
+    
+    const result = await executeQuery(query, params);
+    const row = result.rows[0];
+    
+    const successRate = row.total_calls > 0 ? 
+      (row.successful_calls / row.total_calls * 100).toFixed(1) : 0;
+    
+    return {
+      totalCalls: parseInt(row.total_calls) || 0,
+      successfulCalls: parseInt(row.successful_calls) || 0,
+      failedCalls: parseInt(row.failed_calls) || 0,
+      successRate: parseFloat(successRate),
+      averageDuration: parseFloat(row.avg_duration) || 0,
+      firstCall: row.first_call,
+      lastCall: row.last_call
+    };
+  } catch (error) {
+    console.error('Error getting key metrics:', error);
+    return {
+      totalCalls: 0,
+      successfulCalls: 0,
+      failedCalls: 0,
+      successRate: 0,
+      averageDuration: 0,
+      firstCall: null,
+      lastCall: null
+    };
+  }
+}
+
+// Helper function to get call volume over time
+async function getCallVolume(startDate, endDate, agentId) {
+  try {
+    let query = `
+      SELECT 
+        DATE(start_time) as date,
+        COUNT(*) as calls
+      FROM sessions 
+      WHERE start_time >= $1 AND start_time <= $2
+    `;
+    
+    const params = [startDate, endDate];
+    
+    if (agentId) {
+      query += ` AND agent_id = $3`;
+      params.push(agentId);
+    }
+    
+    query += ` GROUP BY DATE(start_time) ORDER BY date`;
+    
+    const result = await executeQuery(query, params);
+    return result.rows.map(row => ({
+      date: row.date,
+      calls: parseInt(row.calls)
+    }));
+  } catch (error) {
+    console.error('Error getting call volume:', error);
+    return [];
+  }
+}
+
+// Helper function to get duration trends
+async function getDurationTrends(startDate, endDate, agentId) {
+  try {
+    let query = `
+      SELECT 
+        DATE(start_time) as date,
+        AVG(CASE WHEN status = 'completed' THEN duration ELSE NULL END) as avg_duration
+      FROM sessions 
+      WHERE start_time >= $1 AND start_time <= $2
+    `;
+    
+    const params = [startDate, endDate];
+    
+    if (agentId) {
+      query += ` AND agent_id = $3`;
+      params.push(agentId);
+    }
+    
+    query += ` GROUP BY DATE(start_time) ORDER BY date`;
+    
+    const result = await executeQuery(query, params);
+    return result.rows.map(row => ({
+      date: row.date,
+      averageDuration: parseFloat(row.avg_duration) || 0
+    }));
+  } catch (error) {
+    console.error('Error getting duration trends:', error);
+    return [];
+  }
+}
+
+// Helper function to get success rate trends
+async function getSuccessRateTrends(startDate, endDate, agentId) {
+  try {
+    let query = `
+      SELECT 
+        DATE(start_time) as date,
+        COUNT(*) as total_calls,
+        COUNT(CASE WHEN status = 'completed' THEN 1 END) as successful_calls
+      FROM sessions 
+      WHERE start_time >= $1 AND start_time <= $2
+    `;
+    
+    const params = [startDate, endDate];
+    
+    if (agentId) {
+      query += ` AND agent_id = $3`;
+      params.push(agentId);
+    }
+    
+    query += ` GROUP BY DATE(start_time) ORDER BY date`;
+    
+    const result = await executeQuery(query, params);
+    return result.rows.map(row => {
+      const successRate = row.total_calls > 0 ? 
+        (row.successful_calls / row.total_calls * 100) : 0;
+      return {
+        date: row.date,
+        successRate: parseFloat(successRate.toFixed(1)),
+        totalCalls: parseInt(row.total_calls),
+        successfulCalls: parseInt(row.successful_calls)
+      };
+    });
+  } catch (error) {
+    console.error('Error getting success rate trends:', error);
+    return [];
+  }
+}
+
+// Helper function to get recent calls
+async function getRecentCalls(agentId, limit = 10) {
+  try {
+    const result = await executeQuery(`
+      SELECT 
+        s.*,
+        a.name as agent_name
+      FROM sessions s
+      LEFT JOIN agents a ON s.agent_id = a.agent_id
+      WHERE s.agent_id = $1
+      ORDER BY s.start_time DESC
+      LIMIT $2
+    `, [agentId, limit]);
+    
+    return result.rows.map(row => ({
+      id: row.session_id,
+      agentId: row.agent_id,
+      agentName: row.agent_name,
+      customerId: row.customer_id,
+      type: row.type,
+      status: row.status,
+      duration: row.duration,
+      startTime: row.start_time,
+      endTime: row.end_time,
+      transcript: row.transcript,
+      satisfaction: row.satisfaction
+    }));
+  } catch (error) {
+    console.error('Error getting recent calls:', error);
+    return [];
+  }
+}
+
+// Health check for analytics
+router.get('/health', (req, res) => {
+  res.json({
+    status: 'healthy',
+    service: 'analytics',
+    timestamp: new Date().toISOString(),
+    endpoints: {
+      'analytics': 'GET /api/analytics',
+      'agent-analytics': 'GET /api/analytics/agent/:agentId'
+    }
+  });
 });
 
 module.exports = router;

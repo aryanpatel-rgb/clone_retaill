@@ -9,11 +9,11 @@ import Agents from './pages/Agents';
 import AgentDetail from './pages/AgentDetail';
 import Analytics from './pages/Analytics';
 import Sessions from './pages/Sessions';
-import Calls from './pages/Calls';
+import CallsEnhanced from './pages/CallsEnhanced';
+import Contacts from './pages/Contacts';
 import Team from './pages/Team';
 import Settings from './pages/Settings';
 import Integrations from './pages/Integrations';
-import CalComTestRunner from './components/CalComTestRunner';
 import './App.css';
 
 const Help = () => (
@@ -43,12 +43,12 @@ function App() {
               <Route path="agents/:id" element={<AgentDetail />} />
               <Route path="analytics" element={<Analytics />} />
               <Route path="sessions" element={<Sessions />} />
-              <Route path="calls" element={<Calls />} />
+              <Route path="calls" element={<CallsEnhanced />} />
+              <Route path="contacts" element={<Contacts />} />
               <Route path="integrations" element={<Integrations />} />
               <Route path="team" element={<Team />} />
               <Route path="settings" element={<Settings />} />
               <Route path="help" element={<Help />} />
-              <Route path="test" element={<CalComTestRunner />} />
             </Route>
             
             {/* Redirect any unknown routes to home */}

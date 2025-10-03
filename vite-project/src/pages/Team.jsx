@@ -13,56 +13,26 @@ const Team = () => {
     });
     const [isLoading, setIsLoading] = useState(false);
 
-    // Sample team data
-    const sampleTeamMembers = [
-        {
-            id: '1',
-            name: 'John Smith',
-            email: 'john@company.com',
-            role: 'admin',
-            status: 'active',
-            joinedAt: new Date('2024-01-15'),
-            lastActive: new Date(Date.now() - 2 * 60 * 60 * 1000), // 2 hours ago
-            avatar: null,
-            permissions: ['manage_agents', 'view_analytics', 'manage_team', 'manage_billing']
-        },
-        {
-            id: '2',
-            name: 'Sarah Johnson',
-            email: 'sarah@company.com',
-            role: 'manager',
-            status: 'active',
-            joinedAt: new Date('2024-02-01'),
-            lastActive: new Date(Date.now() - 30 * 60 * 1000), // 30 minutes ago
-            avatar: null,
-            permissions: ['manage_agents', 'view_analytics', 'view_team']
-        },
-        {
-            id: '3',
-            name: 'Mike Wilson',
-            email: 'mike@company.com',
-            role: 'member',
-            status: 'active',
-            joinedAt: new Date('2024-02-15'),
-            lastActive: new Date(Date.now() - 5 * 60 * 60 * 1000), // 5 hours ago
-            avatar: null,
-            permissions: ['view_agents', 'view_analytics']
-        },
-        {
-            id: '4',
-            name: 'Emily Davis',
-            email: 'emily@company.com',
-            role: 'member',
-            status: 'pending',
-            joinedAt: null,
-            lastActive: null,
-            avatar: null,
-            permissions: ['view_agents']
+    // Load team members from API
+    const loadTeamMembers = async () => {
+        setIsLoading(true);
+        try {
+            const response = await fetch('/api/team');
+            if (response.ok) {
+                const data = await response.json();
+                setTeamMembers(data.teamMembers || []);
+            } else {
+                console.error('Failed to load team members');
+            }
+        } catch (error) {
+            console.error('Error loading team members:', error);
+        } finally {
+            setIsLoading(false);
         }
-    ];
+    };
 
     useEffect(() => {
-        setTeamMembers(sampleTeamMembers);
+        loadTeamMembers();
     }, []);
 
     const roles = [
