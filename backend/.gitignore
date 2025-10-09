@@ -1,15 +1,38 @@
-/node_modules
-/dist
-/build
-/logs
-/data
-/config
-/docs
-/tests
-/scripts
-/utils
-/views
+# Dependencies
+node_modules/
+
+# Environment files
 .env
-config.env
-*.env
 .env.*
+!.env.example
+*.env
+config.env
+
+# Build outputs
+dist/
+build/
+
+# Logs
+logs/
+*.log
+
+# Data
+data/
+
+# Config (if contains sensitive data - uncomment if needed)
+# config/
+
+# Docs
+# docs/
+
+# Tests
+# tests/
+
+# Scripts (if contains sensitive data - uncomment if needed)
+# scripts/
+
+# Utils (if contains sensitive data - uncomment if needed)
+# utils/
+
+# Views
+# views/

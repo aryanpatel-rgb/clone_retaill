@@ -7,8 +7,6 @@ node_modules/
 .env.*
 !.env.example
 *.env
-**/.env
-**/.env.*
 
 # Build outputs
 dist/
@@ -24,16 +22,16 @@ temp/
 backup/
 
 # Config (if contains sensitive data)
-# config/
+config/
 
 # Data
 data/
 
 # Docs
-# docs/
+docs/
 
 # Examples
-# examples/
+examples/
 
 # Tests
-# tests/
+tests/
